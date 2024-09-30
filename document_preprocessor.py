@@ -46,17 +46,36 @@ class Tokenizer:
             while i < len(input_tokens):
                 matched = False
                 for phrase in multiword_expressions_tokens:
-                    phrase_len = len(phrase)
-                    if input_tokens[i:i+phrase_len] == phrase:
+                    phrase_compressed = "".join(phrase)
+                    length = len(phrase_compressed)
+                    i_ori = i
+                    token_char_cnt = 0
+                    this_matched = True
+                    for char_cnt in range(length):
+                        if token_char_cnt >= len(input_tokens[i]):
+                            i += 1
+                            if i >= len(input_tokens):
+                                this_matched = False
+                                break
+                            token_char_cnt = 0
+                        if phrase_compressed[char_cnt] != input_tokens[i][token_char_cnt]:
+                            this_matched = False
+                            break
+                        token_char_cnt += 1
+                    if i < len(input_tokens) and token_char_cnt != len(input_tokens[i]):
+                        this_matched = False
+                    if this_matched:
                         processed_tokens.append(" ".join(phrase))
-                        i += phrase_len
                         matched = True
                         break
+                    else:
+                        i = i_ori
                 if not matched:
                     processed_tokens.append(input_tokens[i])
-                    i += 1
+                
+                i += 1
             return processed_tokens
-            
+
             
     def tokenize(self, text: str) -> list[str]:
         """
