@@ -100,8 +100,8 @@ class TestRegexTokenizer(unittest.TestCase):
 
     def test_doc_with_punc(self):
         """Test tokenizing a document with punctuations."""
-        text = "Hello, my name is Lin Fangqing, and I keep a cute cat: 'little ghost'!"
-        expected_tokens = ['Hello', 'my', 'name', 'is', 'Lin', 'Fangqing', 'and', 'I', 'keep', 'a', 'cute', 'cat', 'little', 'ghost']
+        text = "Hello, my name is Tomato Lin, and I keep a cute cat: 'little ghost'!"
+        expected_tokens = ['Hello', 'my', 'name', 'is', 'Tomato', 'Lin', 'and', 'I', 'keep', 'a', 'cute', 'cat', 'little', 'ghost']
         tokenizer = RegexTokenizer(lowercase=False, multiword_expressions=mwe_list)
         tokens = tokenizer.tokenize(text)
         self.assertEqual(tokens, expected_tokens)
