@@ -146,7 +146,7 @@ class InvertedIndex:
             index_directory_name: The name of the directory that contains the index
         """
         raise NotImplementedError
-
+    
 
 class BasicInvertedIndex(InvertedIndex):
     def __init__(self) -> None:
@@ -456,6 +456,8 @@ class Indexer:
                 text = doc.get(text_key, '')
                 
                 original_tokens = document_preprocessor.tokenize(text)
+                if original_tokens is None:
+                    original_tokens = []
                 doc_length = len(original_tokens)
                 total_token_count += doc_length
                 

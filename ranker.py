@@ -3,7 +3,9 @@ This is the template for implementing the rankers for your search engine.
 You will be implementing WordCountCosineSimilarity, DirichletLM, TF-IDF, BM25, Pivoted Normalization, and your own ranker.
 """
 from indexing import InvertedIndex
-
+from collections import Counter
+import math
+from math import log
 
 class Ranker:
     """
@@ -42,14 +44,50 @@ class Ranker:
 
         """
         # 1. Tokenize query
+        query_tokens = self.tokenize(query)
+        if self.stopwords:
+            query_tokens = [token for token in query_tokens if token.lower() not in self.stopwords]
+        #print(f"Query Tokens: {query_tokens}")
+        query_word_counts = Counter(query_tokens)
 
         # 2. Fetch a list of possible documents from the index
-
-        # 2. Run RelevanceScorer (like BM25 from below classes) (implemented as relevance classes)
+        candidate_docs = set()
+        for token in query_word_counts:
+            postings = self.index.get_postings(token)  
+            
+            for docid, term_frequency, *positions in postings:  
+                candidate_docs.add(docid)
+                #print(docid, term_frequency, positions)
+        if not candidate_docs:
+            return []
         
+        # 2. Run RelevanceScorer (like BM25 from below classes) (implemented as relevance classes)
+        doc_scores = []
+        for docid in candidate_docs:
+            #doc_word_counts = self.index.get_doc_word_counts(docid)            
+            #print("doc_word_counts_1111", doc_word_counts)
+            doc_word_counts = self.get_doc_word_counts(docid) 
+            print("doc_word_counts", doc_word_counts)
+            score = self.scorer.score(docid, doc_word_counts, query_word_counts)
+            doc_scores.append((docid, score))
+            
         # 3. Return **sorted** results as format [{docid: 100, score:0.5}, {{docid: 10, score:0.2}}]
+        doc_scores.sort(key=lambda x: x[1], reverse=True)
 
-        raise NotImplementedError
+        return doc_scores
+
+    def get_doc_word_counts(self, docid: int) -> dict[str, int]:
+        """
+        Retrieves the word counts for a specific document by looking up all terms in the index and 
+        their respective frequencies in the document.
+        """
+        doc_word_counts = {}
+        for term in self.index.vocabulary:  # Iterate over all terms in the vocabulary
+            postings = self.index.get_postings(term)
+            for doc, term_frequency, *positions in postings:
+                if doc == docid:
+                    doc_word_counts[term] = term_frequency
+        return doc_word_counts
 
 
 class RelevanceScorer:
@@ -99,9 +137,30 @@ class WordCountCosineSimilarity(RelevanceScorer):
         
     def score(self, docid: int, doc_word_counts: dict[str, int], query_word_counts: dict[str, int])-> float:
         # 1. Find the dot product of the word count vector of the document and the word count vector of the query
+        dot_product = 0.0
+        # doc_word_counts = {term: count for term, count in doc_word_counts.items()}
+        # query_word_counts = {term: count for term, count in query_word_counts.items()}
+        
+        # for term, query_count in query_word_counts.items():
+        #     print("doc_word_counts", doc_word_counts)
+        #     doc_count = doc_word_counts.get(term, 0)
+        #     print(f"Scoring Doc {docid}: Term: {term}, Query Count: {query_count}, Doc Count: {doc_count}")
 
+        #     dot_product += query_count * doc_count
+        #     #print(f"Document Term: {term}, Document Count: {doc_count}, Dot Product: {dot_product}")
+        
+        for term, query_count in query_word_counts.items():
+            doc_count = doc_word_counts.get(term, 0)
+            print(f"Scoring Doc {docid}: Term: {term}, Query Count: {query_count}, Doc Count: {doc_count}")
+            dot_product += query_count * doc_count
+        if dot_product == 0:
+            return 0.0
         # 2. Return the score
-        return NotImplementedError
+        # doc_magnitude = math.sqrt(sum(count ** 2 for count in doc_word_counts.values()))
+        # query_magnitude = math.sqrt(sum(count ** 2 for count in query_word_counts.values()))
+        # if doc_magnitude == 0 or query_magnitude == 0:
+        #     return 0.0
+        return dot_product
 
 # TODO Implement DirichletLM
 class DirichletLM(RelevanceScorer):
