@@ -282,9 +282,118 @@ class PositionalInvertedIndex(BasicInvertedIndex):
         occurring in the document.
         """
         super().__init__()
+        self.statistics['index_type'] = 'PositionalInvertedIndex'
+        self.index = defaultdict(lambda: defaultdict(list))  
         
+    def add_doc(self, docid: int, tokens: list[str], original_doc_length: int = None) -> None:
+        #term_count = Counter(tokens)
+        #self.total_token_with_filtered += sum(term_count.values())
+        
+        unique_tokens = len(set(tokens))
+
+        if original_doc_length is None:
+            original_doc_length = len(tokens)
+        self.document_metadata[docid] = {
+            'unique_tokens': unique_tokens,
+            'length': original_doc_length
+        }
+        
+        for position, token in enumerate(tokens):
+            if token:
+                self.index[token][docid].append((position))
+                self.statistics['vocab'][token] += 1
+                self.vocabulary.add(token)
+
+    def remove_doc(self, docid: int) -> None:
+        if docid in self.document_metadata:
+            del self.document_metadata[docid]
+
+            terms_to_delete = []
+        
+        for term in list(self.index.keys()):
+            if docid in self.index[term]:
+                positions = self.index[term][docid]
+                self.statistics['vocab'][term] -= len(positions)  
+                del self.index[term][docid]
+                
+                if not self.index[term]:
+                    terms_to_delete.append(term)
+        
+        for term in terms_to_delete:
+            del self.index[term]
+            self.vocabulary.remove(term)
     
     
+    def get_postings(self, term: str) -> list:
+        if term in self.index:
+            # Return the sorted list of postings (docid, term frequency, positions)
+            return sorted(
+                [(docid, len(positions), positions) for docid, positions in self.index[term].items()],
+                key=lambda x: x[0]
+            )  # Sort by docid
+        else:
+            return []
+    def get_doc_metadata(self, doc_id: int) -> dict[str, int]:
+        return self.document_metadata.get(doc_id, {})
+    
+    def get_term_metadata(self, term: str) -> dict[str, int]:
+        return {
+            'term_count': self.statistics['vocab'].get(term, 0),
+            'doc_frequency': len(self.index.get(term, []))
+        }
+    
+    def get_statistics(self) -> dict[str, int]:
+        total_token_count = sum([doc_metadata['length'] for doc_metadata in self.document_metadata.values()])
+        num_documents = len(self.document_metadata)
+        
+        mean_document_length = total_token_count / num_documents if num_documents > 0 else 0
+        
+        stored_total_token_count = self.statistics.get('stored_total_token_count', 0)
+        return {
+            'unique_token_count': len(self.vocabulary),
+            'total_token_count': total_token_count,
+            'stored_total_token_count': stored_total_token_count,
+            'number_of_documents': num_documents,
+            'mean_document_length': mean_document_length
+        }
+    def save(self, index_directory_name: str) -> None:
+    
+        if not os.path.exists(index_directory_name):
+            os.makedirs(index_directory_name)
+        
+        with open(f"{index_directory_name}/index.txt", "w") as f:
+            for term, postings in self.index.items():
+                postings_str = ",".join(f"{docid}:{','.join(map(str, positions))}" for docid, positions in postings.items())
+                f.write(f"{term} -> {postings_str}\n")
+        
+        with open(f"{index_directory_name}/vocabulary.txt", "w") as f:
+            for word in self.vocabulary:
+                f.write(f"{word}\n")
+        
+        with open(f"{index_directory_name}/document_metadata.txt", "w") as f:
+            f.write(str(self.document_metadata))
+        
+        with open(f"{index_directory_name}/statistics.txt", "w") as f:
+            f.write(str(self.statistics))
+
+    def load(self, index_directory_name: str) -> None:
+        
+        with open(f"{index_directory_name}/index.txt", "r") as f:
+            for line in f:
+                term, postings_str = line.split(" -> ")
+                postings = postings_str.split(",")
+                self.index[term] = {int(docid): list(map(int, positions.split(','))) for docid, positions in (posting.split(":") for posting in postings)}
+        
+        with open(f"{index_directory_name}/vocabulary.txt", "r") as f:
+            self.vocabulary = set(f.read().splitlines())
+        
+        with open(f"{index_directory_name}/document_metadata.txt", "r") as f:
+            self.document_metadata = eval(f.read())
+        
+        with open(f"{index_directory_name}/statistics.txt", "r") as f:
+            self.statistics = eval(f.read())
+
+
 class Indexer:
     '''
     The Indexer class is responsible for creating the index used by the search/ranking algorithm.
@@ -316,7 +425,7 @@ class Indexer:
         '''
         if index_type == IndexType.BasicInvertedIndex:
             index = BasicInvertedIndex()
-        elif index_type == IndexType.PositionalInvertedIndex:
+        elif index_type == IndexType.PositionalIndex:
             index = PositionalInvertedIndex()
         else:
             raise ValueError(f"Invalid index type: {index_type}")
@@ -399,7 +508,7 @@ class SampleIndex(InvertedIndex):
     This class does nothing of value
     '''
 
-    def add_doc(self, docid, tokens):
+    def add_doc(self, docid, tokens, original_doc_length):
         """Tokenize a document and add term ID """
         for token in tokens:
             if token not in self.index:
