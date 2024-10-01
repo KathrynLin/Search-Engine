@@ -166,12 +166,12 @@ class BasicInvertedIndex(InvertedIndex):
         term_count = Counter(tokens)
         #self.total_token_with_filtered += sum(term_count.values())
         
-        unique_tokens = len(term_count)
+        unique_tokens = set(tokens)
 
         if original_doc_length is None:
             original_doc_length = len(tokens)
         self.document_metadata[docid] = {
-            'unique_tokens': unique_tokens,
+            'unique_tokens': len(unique_tokens),
             'length': original_doc_length
         }
         
