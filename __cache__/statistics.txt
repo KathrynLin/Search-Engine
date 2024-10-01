@@ -1,0 +1,1 @@
+{'vocab': Counter(), 'index_type': 'BasicInvertedIndex', 'total_token_count': 0, 'stored_total_token_count': 0, 'unique_token_count': 0}

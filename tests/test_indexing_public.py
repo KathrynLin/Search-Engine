@@ -345,6 +345,7 @@ class TestIndexer_BasicInvertedIndex(unittest.TestCase):
 
         index = Indexer.create_index(self.index_type, 'tests/dataset_2.jsonl', self.tokenizer, set(), 0)
         stats = index.get_statistics()
+        print(stats)
         expected_stats = {'unique_token_count': 10,
                           'total_token_count': 28,
                           'number_of_documents': 3,

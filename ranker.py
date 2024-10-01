@@ -44,9 +44,10 @@ class Ranker:
 
         """
         # 1. Tokenize query
-        query_tokens = self.tokenize(query)
+        query_tokens = self.tokenize(query) or []
         if self.stopwords:
-            query_tokens = [token for token in query_tokens if token.lower() not in self.stopwords]
+            query_tokens = [token if token.lower() not in self.stopwords else '_' for token in query_tokens]
+
         #print(f"Query Tokens: {query_tokens}")
         query_word_counts = Counter(query_tokens)
 
@@ -67,7 +68,7 @@ class Ranker:
             #doc_word_counts = self.index.get_doc_word_counts(docid)            
             #print("doc_word_counts_1111", doc_word_counts)
             doc_word_counts = self.get_doc_word_counts(docid) 
-            print("doc_word_counts", doc_word_counts)
+            #print("doc_word_counts", doc_word_counts)
             score = self.scorer.score(docid, doc_word_counts, query_word_counts)
             doc_scores.append((docid, score))
             
@@ -151,7 +152,7 @@ class WordCountCosineSimilarity(RelevanceScorer):
         
         for term, query_count in query_word_counts.items():
             doc_count = doc_word_counts.get(term, 0)
-            print(f"Scoring Doc {docid}: Term: {term}, Query Count: {query_count}, Doc Count: {doc_count}")
+            #print(f"Scoring Doc {docid}: Term: {term}, Query Count: {query_count}, Doc Count: {doc_count}")
             dot_product += query_count * doc_count
         if dot_product == 0:
             return 0.0
@@ -166,17 +167,45 @@ class WordCountCosineSimilarity(RelevanceScorer):
 class DirichletLM(RelevanceScorer):
     def __init__(self, index: InvertedIndex, parameters: dict = {'mu': 2000}) -> None:
         self.index = index
-        self.parameters = parameters
+        self.mu = parameters.get('mu', 2000)
+
 
     def score(self, docid: int, doc_word_counts: dict[str, int], query_word_counts: dict[str, int]) -> float:
         # 1. Get necessary information from index
+        # Document length |d|
+        doc_length = self.index.get_doc_metadata(docid)['length']
+        # |collection|
+        total_token_count = self.index.get_statistics()['total_token_count']
 
         # 2. Compute additional terms to use in algorithm
 
         # 3. For all query_parts, compute score
+        mu = self.mu
+
+        score = 0.0
+        
+
+        for term, q_count in query_word_counts.items():
+            tf = doc_word_counts.get(term, 0)
+            cf = self.index.get_term_metadata(term).get('term_count', 0)
+            
+            if cf == 0:
+                continue
+            
+            probability = cf / total_token_count
+
+            second_part = log(1 + tf / (mu * probability))
+            score += q_count * second_part
+            #print(f"Term: {term}, Query Count: {q_count}, TF in Document: {tf}, CF in Collection: {cf}")
+            #print(f"Smoothed Probability P({term}|doc): {second_part}")
+
+        score += sum(query_word_counts.values()) * math.log(mu / (doc_length + mu))
+        #print(query_word_counts.values(), mu, doc_length)
 
         # 4. Return the score
-        return NotImplementedError
+        #print(f"Final Score for Document {docid}: {score}")
+
+        return score
 
 
 # TODO Implement BM25
@@ -189,13 +218,40 @@ class BM25(RelevanceScorer):
     
     def score(self, docid: int, doc_word_counts: dict[str, int], query_word_counts: dict[str, int])-> float:
         # 1. Get necessary information from index
+        stats = self.index.get_statistics()
+        doc_length = self.index.get_doc_metadata(docid)['length']  
 
         # 2. Find the dot product of the word count vector of the document and the word count vector of the query
+        N = len(self.index.document_metadata)
+        avgdl = self.index.get_statistics()['mean_document_length']
+        
+        # 3. For all query parts, compute the TF and IDF to get a score 
+        score = 0.0   
+        
+        for term, qf in query_word_counts.items():
+            # Get term frequency in the document and document frequency (df) in the corpus
+            tf = doc_word_counts.get(term, 0)  # Term frequency in document
+            term_stats = self.index.get_term_metadata(term)
+            df = term_stats['doc_frequency']  # Document frequency
 
-        # 3. For all query parts, compute the TF and IDF to get a score    
+            # Skip the term if it doesn't appear in the document
+            if tf == 0:
+                continue
 
+            # 3. Compute IDF using the provided formula
+            idf = math.log((N - df + 0.5) / (df + 0.5))
+
+            # 4. Compute the term frequency (TF) component
+            tf_component = ((self.k1 + 1) * tf) / (self.k1 * (1 - self.b + self.b * (doc_length / avgdl)) + tf)
+
+            # 5. Compute the query frequency (QF) component (if qf > 1)
+            qf_component = ((self.k3 + 1) * qf) / (self.k3 + qf)
+
+            # 6. Calculate the term score and add to the total score
+            term_score = idf * tf_component * qf_component
+            score += term_score
         # 4. Return score
-        return NotImplementedError
+        return score
 
 
 # TODO Implement Pivoted Normalization
@@ -205,14 +261,39 @@ class PivotedNormalization(RelevanceScorer):
         self.b = parameters['b']
 
     def score(self, docid: int, doc_word_counts: dict[str, int], query_word_counts: dict[str, int])-> float:
-        # 1. Get necessary information from index
-
+        
+        doc_length = self.index.get_doc_metadata(docid)['length']  
+        avgdl = self.index.get_statistics()['mean_document_length']  
+        N = len(self.index.document_metadata)
         # 2. Compute additional terms to use in algorithm
 
         # 3. For all query parts, compute the TF, IDF, and QTF values to get a score
+        score = 0.0
+        for term, qf in query_word_counts.items():
+            # Get term frequency in the document and document frequency (df) in the corpus
+            tf = doc_word_counts.get(term, 0)  # Term frequency in document
+            term_stats = self.index.get_term_metadata(term)
+            df = term_stats['doc_frequency']  # Document frequency
 
+            # Skip term if it doesn't appear in the document
+            if tf == 0:
+                continue
+
+            # 3. Compute the logarithmic term frequency component
+            tf_log = 1 + math.log(1 + math.log(tf))
+
+            # 4. Compute the length normalization component
+            length_norm = 1 / (1 - self.b + self.b * (doc_length / avgdl))
+
+            # 5. Compute the inverse document frequency (IDF) component
+            idf = math.log((N + 1) / df)
+
+            # 6. Calculate the term score for the query and accumulate it
+            term_score = qf * tf_log * length_norm * idf
+            score += term_score
         # 4. Return the score
-        return NotImplementedError
+        
+        return score
 
 
 # TODO Implement TF-IDF
@@ -222,15 +303,67 @@ class TF_IDF(RelevanceScorer):
         self.parameters = parameters
     def score(self, docid: int, doc_word_counts: dict[str, int], query_word_counts: dict[str, int]) -> float:
         # 1. Get necessary information from index
-
+        N = len(self.index.document_metadata)
         # 2. Compute additional terms to use in algorithm
+    
 
         # 3. For all query parts, compute the TF and IDF to get a score
+        score = 0.0
+        for term, qf in query_word_counts.items():
+            tf = doc_word_counts.get(term, 0)  
+            term_stats = self.index.get_term_metadata(term)
+            df = term_stats['doc_frequency']  
+
+            if tf == 0 or df == 0:
+                continue
+
+            idf = math.log(N / df) + 1
+            tf_weight = math.log(tf + 1)
+            term_score = tf_weight * idf
+
+            score += term_score
 
         # 4. Return the score
-        return NotImplementedError
+        return score
 
 
 # TODO Implement your own ranker with proper heuristics
-class YourRanker(RelevanceScorer):
-    pass
+class LengthNormalizedScorer(RelevanceScorer):
+    def __init__(self, index: InvertedIndex, parameters: dict = {'b': 0.5}) -> None:
+        """
+        Initializes the scorer with a length normalization parameter `b`.
+        `b` is used to control the impact of length normalization.
+        """
+        self.index = index
+        self.b = parameters['b'] 
+        
+    def score(self, docid: int, doc_word_counts: dict[str, int], query_word_counts: dict[str, int]) -> float:
+        # Total number of documents in the corpus
+        N = len(self.index.document_metadata)
+        
+        # Average document length
+        avgdl = sum([meta['length'] for meta in self.index.document_metadata.values()]) / N
+        
+        # Get term statistics from the index
+        term_stats = {term: self.index.get_term_metadata(term) for term in query_word_counts.keys()}
+
+        # Get document length
+        doc_length = self.index.get_doc_metadata(docid)['length']
+        
+        # Compute TF-IDF part
+        tf_idf_score = 0.0
+        for term in set(query_word_counts.keys()).intersection(doc_word_counts.keys()):
+            tf = doc_word_counts[term]
+            df = term_stats[term]['doc_frequency']
+            idf = math.log(N / df) + 1  # IDF component
+            tf_weight = math.log(tf + 1)  # Logarithmic TF
+            term_score = tf_weight * idf
+            tf_idf_score += term_score
+
+        # Compute Length Normalization Penalty
+        length_penalty = 1 / (1 + self.b * ((doc_length / avgdl) - 1))
+
+        # Final score is TF-IDF score adjusted by length penalty
+        final_score = tf_idf_score * length_penalty
+
+        return final_score

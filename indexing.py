@@ -16,6 +16,7 @@ class IndexType(Enum):
     # the two types of index currently supported are BasicInvertedIndex, PositionalIndex
     PositionalIndex = 'PositionalIndex'
     BasicInvertedIndex = 'BasicInvertedIndex'
+    InvertedIndex = 'BasicInvertedIndex'
     SampleIndex = 'SampleIndex'
 
 
@@ -146,7 +147,7 @@ class InvertedIndex:
             index_directory_name: The name of the directory that contains the index
         """
         raise NotImplementedError
-    
+
 
 class BasicInvertedIndex(InvertedIndex):
     def __init__(self) -> None:
@@ -473,7 +474,7 @@ class Indexer:
         
         index.statistics['total_token_count'] = total_token_count
         index.statistics['stored_total_token_count'] = stored_total_token_count
-        
+#        index.statistics['unique_token_count'] = len(index.index)
         if minimum_word_frequency > 0:
             terms_to_remove = {term for term, count in global_term_count.items() if count < minimum_word_frequency}
             

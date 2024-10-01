@@ -22,7 +22,7 @@ DATASET_PATH = DATA_PATH + 'wikipedia_200k_dataset.jsonl.gz'
 
 
 class SearchEngine(BaseSearchEngine):
-    def __init__(self, max_docs: int = -1, ranker: str = 'BM25') -> None:
+    def __init__(self, max_docs: int = 100, ranker: str = 'BM25') -> None:
         # This is the pipeline of the search engine. Feel free to modify this code.
         # For reference, the pipeline consists of the following steps: 
         # 1. Create a document tokenizer using document_preprocessor Tokenizers
@@ -40,9 +40,11 @@ class SearchEngine(BaseSearchEngine):
         self.preprocessor = RegexTokenizer('\w+')
 
         self.main_index = Indexer.create_index(
-            IndexType.PositionalIndex, DATASET_PATH, self.preprocessor,
+            IndexType.BasicInvertedIndex, DATASET_PATH, self.preprocessor,
             self.stopwords, 50, text_key='text', max_docs=max_docs
         )
+        print('Saving index to cache...')
+        self.main_index.save(CACHE_PATH)
 
         print('Loading ranker...')
         self.set_ranker(ranker)
