@@ -15,14 +15,14 @@ from models import BaseSearchEngine, SearchResponse
 
 
 DATA_PATH = 'data/' # TODO: Set this to the path to your data folder
-CACHE_PATH = '__cache__/' # Set this to the path of the cache folder
+CACHE_PATH = '__cache__' # Set this to the path of the cache folder
 
 STOPWORD_PATH = DATA_PATH + 'stopwords.txt'
 DATASET_PATH = DATA_PATH + 'wikipedia_200k_dataset.jsonl.gz'
 
 
 class SearchEngine(BaseSearchEngine):
-    def __init__(self, max_docs: int = 100, ranker: str = 'BM25') -> None:
+    def __init__(self, max_docs: int = 1000, ranker: str = 'BM25') -> None:
         # This is the pipeline of the search engine. Feel free to modify this code.
         # For reference, the pipeline consists of the following steps: 
         # 1. Create a document tokenizer using document_preprocessor Tokenizers
@@ -31,7 +31,7 @@ class SearchEngine(BaseSearchEngine):
         # 4. Initialize the pipeline with the ranker
 
         print('Initializing Search Engine...')
-        self.stopwords = set()
+        self.stopwords = set(['and', 'the'])
         with open(STOPWORD_PATH, 'r') as f:
             for line in f:
                 self.stopwords.add(line.strip())
@@ -41,13 +41,13 @@ class SearchEngine(BaseSearchEngine):
 
         self.main_index = Indexer.create_index(
             IndexType.BasicInvertedIndex, DATASET_PATH, self.preprocessor,
-            self.stopwords, 50, text_key='text', max_docs=max_docs
+            self.stopwords, 50, text_key='text', max_docs=max_docs, load_file_dir=None
         )
         print('Saving index to cache...')
         self.main_index.save(CACHE_PATH)
 
         print('Loading ranker...')
-        self.set_ranker(ranker)
+        self.set_ranker("TF_IDF")
 
         print('Search Engine initialized!')
 
@@ -75,7 +75,7 @@ class SearchEngine(BaseSearchEngine):
         # 2. This is example code and may not be correct.
         results = self.pipeline.query(query)
         return [SearchResponse(id=idx+1, docid=result[0], score=result[1]) for idx, result in enumerate(results)]
-
+    
 
 def initialize():
     search_obj = SearchEngine()

@@ -54,9 +54,8 @@ class Ranker:
         # 2. Fetch a list of possible documents from the index
         candidate_docs = set()
         for token in query_word_counts:
-            postings = self.index.get_postings(token)  
-            
-            for docid, term_frequency, *positions in postings:  
+            postings = self.index.get_postings(token)
+            for docid, term_frequency, *positions in postings:
                 candidate_docs.add(docid)
                 #print(docid, term_frequency, positions)
         if not candidate_docs:
@@ -65,10 +64,7 @@ class Ranker:
         # 2. Run RelevanceScorer (like BM25 from below classes) (implemented as relevance classes)
         doc_scores = []
         for docid in candidate_docs:
-            #doc_word_counts = self.index.get_doc_word_counts(docid)            
-            #print("doc_word_counts_1111", doc_word_counts)
-            doc_word_counts = self.get_doc_word_counts(docid) 
-            #print("doc_word_counts", doc_word_counts)
+            doc_word_counts = self.index.get_doc_word_counts(docid, query_word_counts)  
             score = self.scorer.score(docid, doc_word_counts, query_word_counts)
             doc_scores.append((docid, score))
             
@@ -76,20 +72,6 @@ class Ranker:
         doc_scores.sort(key=lambda x: x[1], reverse=True)
 
         return doc_scores
-
-    def get_doc_word_counts(self, docid: int) -> dict[str, int]:
-        """
-        Retrieves the word counts for a specific document by looking up all terms in the index and 
-        their respective frequencies in the document.
-        """
-        doc_word_counts = {}
-        for term in self.index.vocabulary:  # Iterate over all terms in the vocabulary
-            postings = self.index.get_postings(term)
-            for doc, term_frequency, *positions in postings:
-                if doc == docid:
-                    doc_word_counts[term] = term_frequency
-        return doc_word_counts
-
 
 class RelevanceScorer:
     '''

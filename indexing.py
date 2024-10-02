@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 import os
 import json
 import gzip
+from tqdm import tqdm
 
 
 class IndexType(Enum):
@@ -51,7 +52,7 @@ class InvertedIndex:
         """
         raise NotImplementedError
 
-    def add_doc(self, docid: int, tokens: list[str], original_doc_length: int = None) -> None:
+    def add_doc(self, docid: int, tokens: list[str]) -> None:
         """
         Add a document to the index and update the index's metadata on the basis of this
         document's condition (e.g., collection size, average document length).
@@ -148,7 +149,23 @@ class InvertedIndex:
         """
         raise NotImplementedError
 
-
+    def get_doc_word_counts(self, docid: int, query_word_counts: dict[str, int]) -> dict[str, int]:
+        """
+        Retrieves the word counts for a document, limiting to terms that appear in the query.
+        """
+        doc_word_counts = {}
+        for term in query_word_counts:
+            postings = self.get_postings(term)  # Retrieve the list of postings for the term
+            for posting in postings:
+                if isinstance(posting, tuple) and len(posting) >= 2:
+                    doc, term_frequency = posting[0], posting[1]
+                else:
+                    doc, term_frequency = posting, 1  # If posting is an int, treat it as the frequency or doc_id.
+                
+                if doc == docid:
+                    doc_word_counts[term] = term_frequency
+        return doc_word_counts
+    
 class BasicInvertedIndex(InvertedIndex):
     def __init__(self) -> None:
         """
@@ -162,17 +179,14 @@ class BasicInvertedIndex(InvertedIndex):
         self.index = defaultdict(lambda: defaultdict(int))
         #self.total_token_with_filtered = 0 # number of tokens before filtered
         
-    def add_doc(self, docid: int, tokens: list[str], original_doc_length: int = None) -> None:
-        term_count = Counter(tokens)
-        #self.total_token_with_filtered += sum(term_count.values())
-        
-        unique_tokens = set(tokens)
-
-        if original_doc_length is None:
-            original_doc_length = len(tokens)
+    def add_doc(self, docid: int, tokens: list[str]) -> None:
+        doc_length = len(tokens)
+        filtered_tokens = [token for token in tokens if token is not None]
+        term_count = Counter(filtered_tokens)
+        unique_tokens = len(term_count)
         self.document_metadata[docid] = {
-            'unique_tokens': len(unique_tokens),
-            'length': original_doc_length
+            'unique_tokens': unique_tokens,
+            'length': doc_length
         }
         
         for term, count in term_count.items():
@@ -180,7 +194,6 @@ class BasicInvertedIndex(InvertedIndex):
                 self.index[term][docid] += count
                 self.statistics['vocab'][term] += count 
                 self.vocabulary.add(term)
-        
         
     
     def remove_doc(self, docid: int) -> None:
@@ -286,25 +299,26 @@ class PositionalInvertedIndex(BasicInvertedIndex):
         self.statistics['index_type'] = 'PositionalInvertedIndex'
         self.index = defaultdict(lambda: defaultdict(list))  
         
-    def add_doc(self, docid: int, tokens: list[str], original_doc_length: int = None) -> None:
+    def add_doc(self, docid: int, tokens: list[str]) -> None:
         #term_count = Counter(tokens)
         #self.total_token_with_filtered += sum(term_count.values())
-        
-        unique_tokens = len(set(tokens))
+        doc_length = len(tokens)
 
-        if original_doc_length is None:
-            original_doc_length = len(tokens)
+        term_positions = defaultdict(list)  # Store positions for each valid term
+        for position, token in enumerate(tokens):
+            if token is not None:
+                term_positions[token].append(position)
+                
+        unique_tokens = len(term_positions)        
         self.document_metadata[docid] = {
             'unique_tokens': unique_tokens,
-            'length': original_doc_length
+            'length': doc_length
         }
+        for term, positions in term_positions.items():
+            self.index[term][docid].extend(positions)  
+            self.statistics['vocab'][term] += len(positions)  
+            self.vocabulary.add(term)
         
-        for position, token in enumerate(tokens):
-            if token:
-                self.index[token][docid].append((position))
-                self.statistics['vocab'][token] += 1
-                self.vocabulary.add(token)
-
     def remove_doc(self, docid: int) -> None:
         if docid in self.document_metadata:
             del self.document_metadata[docid]
@@ -322,8 +336,7 @@ class PositionalInvertedIndex(BasicInvertedIndex):
         
         for term in terms_to_delete:
             del self.index[term]
-            self.vocabulary.remove(term)
-    
+            self.vocabulary.remove(term)  
     
     def get_postings(self, term: str) -> list:
         if term in self.index:
@@ -404,7 +417,7 @@ class Indexer:
     def create_index(index_type: IndexType, dataset_path: str,
                         document_preprocessor: Tokenizer, stopwords: set[str],
                         minimum_word_frequency: int, text_key = "text",
-                        max_docs: int = -1, ) -> InvertedIndex:
+                        max_docs: int = -1, load_file_dir: str = None) -> InvertedIndex:
         '''
         This function is responsible for going through the documents one by one and inserting them into the index after tokenizing the document
 
@@ -424,6 +437,7 @@ class Indexer:
             An inverted index
         
         '''
+        index = None
         if index_type == IndexType.BasicInvertedIndex:
             index = BasicInvertedIndex()
         elif index_type == IndexType.PositionalIndex:
@@ -431,68 +445,93 @@ class Indexer:
         else:
             raise ValueError(f"Invalid index type: {index_type}")
         
-        if stopwords is None:
-            stopwords = set()
+        # if stopwords is None:
+        #     stopwords = set()
         
-        global_term_count = Counter()
-        total_token_count = 0
-        stored_total_token_count = 0
+        # global_term_count = Counter()
+        # total_token_count = 0
+        # stored_total_token_count = 0
         
-        def open_file(path):
-            if path.endswith('.gz'):
-                return gzip.open(path, 'rt', encoding='utf-8')
+        def filters(tokens, global_term_count, minimum_word_frequency, stopwords):
+            filtered_tokens = [term if (term not in stopwords and global_term_count[term] >= minimum_word_frequency) else None for term in tokens]
+            return filtered_tokens
+        
+        def open_file(dataset_path):
+            if dataset_path.endswith('.gz'):
+                return gzip.open(dataset_path, 'rt', encoding='utf-8')  # Open as text using gzip
             else:
-                return open(path, 'r', encoding='utf-8')
-            
+                return open(dataset_path, 'r', encoding='utf-8')  # Open as a regular text file
+
        
-        doc_count = 0
+        # doc_count = 0
         
-        with open_file(dataset_path) as f:
-            for line in f:
-                if max_docs > 0 and doc_count >= max_docs:
-                    break
+        # with open_file(dataset_path) as f:
+        #     for line in f:
+        #         if max_docs > 0 and doc_count >= max_docs:
+        #             break
                 
-                doc = json.loads(line)
-                docid = int(doc['docid'])
-                text = doc.get(text_key, '')
+        #         doc = json.loads(line)
+        #         docid = int(doc['docid'])
+        #         text = doc.get(text_key, '')
                 
-                original_tokens = document_preprocessor.tokenize(text)
-                if original_tokens is None:
-                    original_tokens = []
-                doc_length = len(original_tokens)
-                total_token_count += doc_length
+        #         original_tokens = document_preprocessor.tokenize(text)
+        #         if original_tokens is None:
+        #             original_tokens = []
+        #         doc_length = len(original_tokens)
+        #         total_token_count += doc_length
                 
-                tokens = [token for token in original_tokens if token and token.lower() not in stopwords]
+        #         tokens = [token for token in original_tokens if token and token.lower() not in stopwords]
                 
-                stored_total_token_count += len(tokens)
-                global_term_count.update(tokens)
-                index.add_doc(docid, tokens, doc_length)
+        #         stored_total_token_count += len(tokens)
+        #         global_term_count.update(tokens)
+        #         index.add_doc(docid, tokens, doc_length)
                 
                 
-                doc_count += 1
+        #         doc_count += 1
                 #print(f"The total token count is {total_token_count}")
         
-        index.statistics['total_token_count'] = total_token_count
-        index.statistics['stored_total_token_count'] = stored_total_token_count
+        # index.statistics['total_token_count'] = total_token_count
+        # index.statistics['stored_total_token_count'] = stored_total_token_count
 #        index.statistics['unique_token_count'] = len(index.index)
-        if minimum_word_frequency > 0:
-            terms_to_remove = {term for term, count in global_term_count.items() if count < minimum_word_frequency}
+        # if minimum_word_frequency > 0:
+        #     terms_to_remove = {term for term, count in global_term_count.items() if count < minimum_word_frequency}
             
-            for term in terms_to_remove:
-                if term in index.index:
+        #     for term in terms_to_remove:
+        #         if term in index.index:
                     
-                    stored_total_token_count -= sum(index.index[term].values())
-                    #print(f"The stored_total_token_count is {stored_total_token_count}")
-                    del index.index[term]
-                    if term in index.vocabulary:
-                        index.vocabulary.remove(term)
+        #             stored_total_token_count -= sum(index.index[term].values())
+        #             #print(f"The stored_total_token_count is {stored_total_token_count}")
+        #             del index.index[term]
+        #             if term in index.vocabulary:
+        #                 index.vocabulary.remove(term)
                 
-            index.statistics['stored_total_token_count'] = stored_total_token_count
-            index.statistics['unique_token_count'] = len(index.index)
-            
+        #     index.statistics['stored_total_token_count'] = stored_total_token_count
+        #     index.statistics['unique_token_count'] = len(index.index)
+        global_term_count = Counter()
+        doc_count = 0
+        index_ls = {}
+        if load_file_dir: 
+            index.load(load_file_dir)
+        else:
+            with open_file(dataset_path) as f:
+                for line in tqdm(f, desc="Indexing"):
+                    if max_docs > 0 and doc_count >= max_docs:
+                        break 
+                    doc = json.loads(line)
+                    docid = int(doc['docid'])
+                    text = doc.get(text_key, '')
+                    tokens = document_preprocessor.tokenize(text)
+                    global_term_count.update(tokens)
+                    doc_count += 1
+                    index_ls[doc["docid"]] = tokens
+                
+                for docid, tokens in index_ls.items():
+                    filtered_tokens = filters(tokens, global_term_count, minimum_word_frequency, stopwords)
+                    index.add_doc(docid, filtered_tokens)   
+                        
         return index
-                
-                
+            
+            
                 
 
 
@@ -511,7 +550,7 @@ class SampleIndex(InvertedIndex):
     This class does nothing of value
     '''
 
-    def add_doc(self, docid, tokens, original_doc_length):
+    def add_doc(self, docid, tokens):
         """Tokenize a document and add term ID """
         for token in tokens:
             if token not in self.index:

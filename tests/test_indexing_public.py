@@ -312,24 +312,19 @@ class TestBasicInvertedIndex(unittest.TestCase):
 ############ =======Test Indexer for BasicInvertedIndex =========== ############
 
 # Create a mock document preprocessor that tokenizes without filtering
-mwe_filepath = '/Users/linfangqing/Desktop/SI650/HW/HW1/starter-code/tests/multi_word_expressions.txt'
-mwe_list = []
-with open(mwe_filepath, 'r') as f: 
-    lines = f.readlines()
-    for line in lines:
-        mwe_list.append(line.strip())
+
 class TestIndexer_BasicInvertedIndex(unittest.TestCase):
     
     def setUp(self) -> None:
         self.index_name = 'test_index'
-        
-        self.tokenizer = RegexTokenizer(token_regex='\w+', multiword_expressions=mwe_list)
+        self.tokenizer = RegexTokenizer('\w+')
         self.index_type = IndexType.BasicInvertedIndex
 
     def test_index_vocabularly(self):
 
         index = Indexer.create_index(self.index_type, 'tests/dataset_2.jsonl', self.tokenizer, set(), 0)
         stats = index.get_statistics()
+        print(stats)
         
         expected_stats = {'unique_token_count': 10,
                           'total_token_count': 28,
@@ -345,7 +340,6 @@ class TestIndexer_BasicInvertedIndex(unittest.TestCase):
 
         index = Indexer.create_index(self.index_type, 'tests/dataset_2.jsonl', self.tokenizer, set(), 0)
         stats = index.get_statistics()
-        print(stats)
         expected_stats = {'unique_token_count': 10,
                           'total_token_count': 28,
                           'number_of_documents': 3,
@@ -378,7 +372,6 @@ class TestIndexer_BasicInvertedIndex(unittest.TestCase):
                           'total_token_count': 28,
                           'number_of_documents': 3,
                           'mean_document_length': 28/3}
-        #print(stats)
         for k, v in expected_stats.items():
             self.assertEqual(stats[k], expected_stats[k], 
                 '%s was not what was expected %d' % (k, expected_stats[k]))
@@ -406,14 +399,14 @@ class TestPositionalInvertedIndex(TestBasicInvertedIndex):
         term = "apple"
         postings = self.index.get_postings(term)
         docid = self.index.get_doc_metadata(doc_id).get('index_doc_id', doc_id)
-        
+
         # Assertions
         self.assertIsInstance(self.index.get_term_metadata(term), dict)
         docid_idx = bisect.bisect_left(postings, docid, key=lambda x: x[0])
         self.assertEqual(docid, postings[docid_idx][0])
         # Check term frequency in the document
         self.assertEqual(postings[docid_idx][1], 1)
-        # self.assertEqual(postings[docid_idx][2], [0])
+        self.assertEqual(postings[docid_idx][2], [0])
 
 
 if __name__ == '__main__':

@@ -72,13 +72,24 @@ class TestSplitTokenizer(unittest.TestCase):
         # TODO - Implement this test
         # You are only required to implement the test case, which we will use for grading. 
         # Nevertheless, we encourage you to implement additional test cases to ensure your code is correct. 
-        text = "The United Nations"
-        expected_tokens = ['The', 'United Nations']
+        text = "The United Nations is  United Nations Development Programme."
+        expected_tokens = ['The', 'United Nations', 'is', 'United Nations Development Programme', '.']
         tokenizer = SplitTokenizer(lowercase=False, multiword_expressions=mwe_list)
         tokens = tokenizer.tokenize(text)
         self.assertEqual(tokens, expected_tokens)
 
-
+    def test2(self):
+        """Test tokenizing a document with a multi-word expression
+           containing a punctuation."""
+        # TODO - Implement this test
+        # You are only required to implement the test case, which we will use for grading. 
+        # Nevertheless, we encourage you to implement additional test cases to ensure your code is correct. 
+        text = "The United Nations is  Mexican-Kenyan actress Charity: Water."
+        expected_tokens = ['The', 'United Nations', 'is', "Mexican-Kenyan", 'actress', 'Charity: Water', '.']
+        tokenizer = SplitTokenizer(lowercase=False, multiword_expressions=mwe_list)
+        tokens = tokenizer.tokenize(text)
+        self.assertEqual(tokens, expected_tokens)
+        
 ############ =======Test RegexTokenizer=========== ############
 class TestRegexTokenizer(unittest.TestCase):
     """Test RegexTokenizer."""

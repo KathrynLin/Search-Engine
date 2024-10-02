@@ -1,5 +1,6 @@
 import csv
 import math
+from tqdm import tqdm
 """
 NOTE: We've curated a set of query-document relevance scores for you to use in this part of the assignment. 
 You can find 'relevance.csv', where the 'rel' column contains scores of the following relevance levels: 
@@ -52,9 +53,12 @@ def ndcg_score(search_result_relevances: list[float], ideal_relevance_score_orde
     """
     def dcg(relevances):
         dcg_value = 0.0
-        for i, rel in enumerate(relevances[:cut_off]):
-            rank = i + 1
-            dcg_value += rel / math.log2(rank + 1)
+        for idx, rel in enumerate(relevances[:cut_off]):
+            rank = idx + 1  # Rank positions start from 1
+            if rank == 1:
+                dcg_value += rel
+            else:
+                dcg_value += rel / math.log2(rank)
         return dcg_value
     
     dcg_score = dcg(search_result_relevances)
@@ -80,57 +84,45 @@ def run_relevance_tests(relevance_data_filename: str, ranker) -> dict[str, float
     Returns:
         A dictionary containing both MAP and NDCG scores
     """
+
     query_relevance = {}
 
-    # TODO: Load the relevance dataset
     with open(relevance_data_filename, 'r') as file:
         reader = csv.DictReader(file)
         for row in reader:
-            query_id = row['query_id']
-            doc_id = int(row['doc_id'])
-            rel = int(row['rel'])
-            if query_id not in query_relevance:
-                query_relevance[query_id] = {}
-            query_relevance[query_id][doc_id] = rel
+            query = row['query']  
+            doc_id = int(row['docid'])  
+            rel = int(row['rel'])       
             
-    # TODO: Run each of the dataset's queries through your ranking function
+            if query not in query_relevance:
+                query_relevance[query] = {}
+            query_relevance[query][doc_id] = rel
 
-    # TODO: For each query's result, calculate the MAP and NDCG for every single query and average them out
     map_scores = []
     ndcg_scores = []
-    for query_id, doc_relevances in query_relevance.items():
-        query = query_id  # Assuming the query_id represents the query text in the dataset
-        retrieved_docs = ranker.query(query)
-        
+    
+    for query, doc_relevances in tqdm(query_relevance.items(), desc="Evaluating"):
+        retrieved_docs = ranker.query(query)  
         retrieved_docids = [docid for docid, score in retrieved_docs]
 
-        relevance_scores = []
-        for docid in retrieved_docids:
-            rel = doc_relevances.get(docid, 0)
-            relevance_scores.append(rel)
-            
+        relevance_scores = [doc_relevances.get(docid, 0) for docid in retrieved_docids]
         ideal_relevance_ordering = sorted(doc_relevances.values(), reverse=True)
         
-        search_result_relevances = [1 if rel >= 1 else 0 for rel in relevance_scores]
+        search_result_relevances = [1 if rel > 3 else 0 for rel in relevance_scores]
 
         map_score_value = map_score(search_result_relevances)
         ndcg_score_value = ndcg_score(search_result_relevances, ideal_relevance_ordering)
         
         map_scores.append(map_score_value)
         ndcg_scores.append(ndcg_score_value)
-    # NOTE: MAP requires using binary judgments of relevant (1) or not (0). You should use relevance 
-    #       scores of (1,2,3) as not-relevant, and (4,5) as relevant.
-
-    # NOTE: NDCG can use any scoring range, so no conversion is needed.
-  
-    # TODO: Compute the average MAP and NDCG across all queries and return the scores
-    # NOTE: You should also return the MAP and NDCG scores for each query in a list
-    return {'map': sum(map_scores) / len(map_scores if map_scores else 0.0), 
-            'ndcg': sum(ndcg_scores) / len(ndcg_scores) if ndcg_scores else 0.0, 
-            'map_list': map_scores, 
-            'ndcg_list': ndcg_scores
-            }
-
+    
+    # Compute the average MAP and NDCG across all queries and return the scores
+    return {
+        'map': sum(map_scores) / len(map_scores) if map_scores else 0.0, 
+        'ndcg': sum(ndcg_scores) / len(ndcg_scores) if ndcg_scores else 0.0, 
+        'map_list': map_scores, 
+        'ndcg_list': ndcg_scores
+    }
 
 if __name__ == '__main__':
     pass
